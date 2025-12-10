@@ -58,6 +58,10 @@ export class MCPConnectionManagerEnhanced {
         clientSecret: config.oauth?.clientSecret || config.clientSecret,
         scopes: config.oauth?.scopes || config.scopes || [],
         clientMetadata: config.oauth?.clientMetadata,
+        // Custom OAuth metadata URL (for remote MCP servers like Atlassian)
+        metadataUrl: config.oauth?.metadataUrl,
+        // Custom callback URL
+        callbackUrl: config.oauth?.callbackUrl,
       },
       // Custom headers (legacy support)
       headers: config.headers || {},
@@ -180,6 +184,9 @@ export class MCPConnectionManagerEnhanced {
         clientSecret: config.oauth?.clientSecret || options.clientSecret,
         scopes: config.oauth?.scopes || options.scopes,
         clientMetadata: config.oauth?.clientMetadata || options.clientMetadata,
+        // Pass custom OAuth metadata URL and callback URL for remote servers
+        metadataUrl: config.oauth?.metadataUrl || options.metadataUrl,
+        callbackUrl: config.oauth?.callbackUrl || options.callbackUrl,
         ...options,
       }
     );

@@ -4,6 +4,11 @@ import { logger } from '../utils/logger.js';
 import { oauthManager } from './OAuthManager.js';
 
 /**
+ * MCP Protocol Version
+ */
+export const MCP_PROTOCOL_VERSION = '2025-03-26';
+
+/**
  * Transport types supported by the MCP Host
  */
 export const TransportType = {
@@ -65,7 +70,10 @@ export class MCPClientEnhanced {
    * Build authentication headers based on auth type
    */
   async buildAuthHeaders() {
-    const headers = { ...this.config.headers };
+    const headers = { 
+      ...this.config.headers,
+      'MCP-Protocol-Version': MCP_PROTOCOL_VERSION,
+    };
 
     switch (this.config.authType) {
       case AuthType.API_KEY:
@@ -121,6 +129,9 @@ export class MCPClientEnhanced {
         clientSecret: this.config.oauth.clientSecret,
         scopes: this.config.oauth.scopes,
         clientMetadata: this.config.oauth.clientMetadata,
+        // Pass custom OAuth metadata URL and callback URL for remote servers
+        metadataUrl: this.config.oauth.metadataUrl,
+        callbackUrl: this.config.oauth.callbackUrl,
         ...options,
       }
     );
@@ -150,6 +161,38 @@ export class MCPClientEnhanced {
   }
 
   /**
+   * Probe remote MCP server for OAuth requirements
+   * Some remote MCP servers (like Atlassian) require OAuth but need to be probed first
+   */
+  async probeForOAuthRequirements() {
+    try {
+      const response = await fetch(this.config.url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/event-stream',
+          'MCP-Protocol-Version': MCP_PROTOCOL_VERSION,
+        },
+      });
+      
+      // Check for 401/403 which indicates auth required
+      if (response.status === 401 || response.status === 403) {
+        const wwwAuth = response.headers.get('WWW-Authenticate');
+        if (wwwAuth) {
+          logger.info(`Remote MCP server requires OAuth: ${this.name}`, { wwwAuth });
+          return { requiresAuth: true, wwwAuthenticate: wwwAuth };
+        }
+        return { requiresAuth: true };
+      }
+      
+      return { requiresAuth: false };
+    } catch (error) {
+      // Network errors might indicate the server needs auth
+      logger.debug(`OAuth probe failed for ${this.name}:`, error.message);
+      return { requiresAuth: false, error: error.message };
+    }
+  }
+
+  /**
    * Connect to the MCP server using appropriate transport
    */
   async connect() {
@@ -176,6 +219,23 @@ export class MCPClientEnhanced {
         error.state = authInfo.state;
         error.expiresIn = authInfo.expiresIn;
         throw error;
+      }
+
+      // For servers that might auto-detect OAuth needs, probe first if no auth configured
+      if (this.config.authType === AuthType.NONE) {
+        const probeResult = await this.probeForOAuthRequirements();
+        if (probeResult.requiresAuth) {
+          logger.info(`Server ${this.name} requires OAuth authentication`);
+          // Upgrade to OAuth2 auth type
+          this.config.authType = AuthType.OAUTH2;
+          const authInfo = await this.initiateOAuthFlow();
+          const error = new Error(`OAuth authorization required for ${this.name}`);
+          error.name = 'OAuthAuthorizationRequired';
+          error.authorizationUrl = authInfo.authorizationUrl;
+          error.state = authInfo.state;
+          error.expiresIn = authInfo.expiresIn;
+          throw error;
+        }
       }
 
       // Build authentication headers

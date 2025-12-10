@@ -50,34 +50,92 @@ export class OAuthManager {
   /**
    * Discover OAuth server metadata from MCP server
    * Following RFC8414 - OAuth 2.0 Authorization Server Metadata
+   * Supports multiple discovery strategies for different MCP server types
    */
-  async discoverServerMetadata(serverUrl) {
+  async discoverServerMetadata(serverUrl, customMetadataUrl = null) {
     try {
-      // Extract authorization base URL (remove path component)
       const url = new URL(serverUrl);
       const baseUrl = `${url.protocol}//${url.host}`;
       
-      // Try well-known endpoint first
-      const metadataUrl = `${baseUrl}/.well-known/oauth-authorization-server`;
+      // Discovery strategies in order of preference:
+      // 1. Custom metadata URL (if provided)
+      // 2. MCP endpoint's .well-known path (for remote MCP servers like Atlassian)
+      // 3. Base URL .well-known (standard OAuth 2.0)
+      // 4. OpenID Connect discovery
+      const discoveryUrls = [];
       
-      logger.info(`Discovering OAuth metadata from: ${metadataUrl}`);
+      if (customMetadataUrl) {
+        discoveryUrls.push(customMetadataUrl);
+      }
       
-      const response = await fetch(metadataUrl, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'MCP-Protocol-Version': '2025-03-26',
-        },
-      });
+      // For remote MCP servers, try discovery relative to the SSE endpoint
+      if (url.pathname && url.pathname !== '/') {
+        // e.g., https://mcp.atlassian.com/v1/sse -> https://mcp.atlassian.com/.well-known/oauth-authorization-server
+        discoveryUrls.push(`${baseUrl}/.well-known/oauth-authorization-server`);
+        // Also try with the path prefix (e.g., /v1/.well-known/...)
+        const pathPrefix = url.pathname.split('/').slice(0, -1).join('/');
+        if (pathPrefix) {
+          discoveryUrls.push(`${baseUrl}${pathPrefix}/.well-known/oauth-authorization-server`);
+        }
+      } else {
+        discoveryUrls.push(`${baseUrl}/.well-known/oauth-authorization-server`);
+      }
+      
+      // OpenID Connect discovery
+      discoveryUrls.push(`${baseUrl}/.well-known/openid-configuration`);
+      
+      // Try each discovery URL
+      for (const metadataUrl of discoveryUrls) {
+        try {
+          logger.info(`Attempting OAuth metadata discovery from: ${metadataUrl}`);
+          
+          const response = await fetch(metadataUrl, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'MCP-Protocol-Version': '2025-03-26',
+            },
+          });
 
-      if (response.ok) {
-        const metadata = await response.json();
-        this.serverMetadata.set(serverUrl, metadata);
-        logger.info(`Discovered OAuth metadata for ${serverUrl}`, { metadata });
-        return metadata;
+          if (response.ok) {
+            const metadata = await response.json();
+            this.serverMetadata.set(serverUrl, metadata);
+            logger.info(`Discovered OAuth metadata for ${serverUrl}`, { 
+              discoveredFrom: metadataUrl,
+              issuer: metadata.issuer,
+            });
+            return metadata;
+          }
+        } catch (discoveryError) {
+          logger.debug(`Discovery failed for ${metadataUrl}:`, discoveryError.message);
+        }
       }
 
-      // Fallback to default endpoints
+      // Fallback: Try HEAD request to MCP endpoint for OAuth challenge
+      try {
+        const mcpResponse = await fetch(serverUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'text/event-stream',
+            'MCP-Protocol-Version': '2025-03-26',
+          },
+        });
+        
+        // Check for WWW-Authenticate header with OAuth metadata
+        const wwwAuth = mcpResponse.headers.get('WWW-Authenticate');
+        if (wwwAuth) {
+          const metadata = this.parseWWWAuthenticateHeader(wwwAuth, baseUrl);
+          if (metadata) {
+            this.serverMetadata.set(serverUrl, metadata);
+            logger.info(`Discovered OAuth metadata from WWW-Authenticate header for ${serverUrl}`);
+            return metadata;
+          }
+        }
+      } catch (mcpError) {
+        logger.debug(`MCP endpoint probe failed:`, mcpError.message);
+      }
+
+      // Final fallback to default endpoints
       logger.info(`OAuth metadata discovery failed, using default endpoints for ${serverUrl}`);
       const defaultMetadata = {
         issuer: baseUrl,
@@ -110,6 +168,37 @@ export class OAuthManager {
         code_challenge_methods_supported: ['S256'],
       };
     }
+  }
+
+  /**
+   * Parse WWW-Authenticate header for OAuth metadata (RFC 6750)
+   */
+  parseWWWAuthenticateHeader(header, baseUrl) {
+    try {
+      // Parse Bearer realm="...", authorization_uri="...", etc.
+      const params = {};
+      const regex = /(\w+)="([^"]*)"/g;
+      let match;
+      
+      while ((match = regex.exec(header)) !== null) {
+        params[match[1]] = match[2];
+      }
+      
+      if (params.authorization_uri || params.realm) {
+        return {
+          issuer: params.realm || baseUrl,
+          authorization_endpoint: params.authorization_uri || `${baseUrl}/authorize`,
+          token_endpoint: params.token_uri || `${baseUrl}/token`,
+          registration_endpoint: params.registration_uri,
+          response_types_supported: ['code'],
+          grant_types_supported: ['authorization_code', 'refresh_token'],
+          code_challenge_methods_supported: ['S256'],
+        };
+      }
+    } catch (e) {
+      logger.debug('Failed to parse WWW-Authenticate header:', e);
+    }
+    return null;
   }
 
   /**
@@ -166,19 +255,52 @@ export class OAuthManager {
 
   /**
    * Get callback URL for OAuth flow
+   * Supports multiple deployment scenarios
    */
-  getCallbackUrl() {
-    const baseUrl = process.env.APP_URL || process.env.HEROKU_APP_URL || 
-      `http://localhost:${process.env.PORT || 3000}`;
+  getCallbackUrl(customCallbackUrl = null) {
+    if (customCallbackUrl) {
+      return customCallbackUrl;
+    }
+    
+    // Priority: explicit APP_URL > HEROKU_APP_URL > HEROKU_APP_NAME > localhost
+    let baseUrl = process.env.APP_URL;
+    
+    if (!baseUrl && process.env.HEROKU_APP_URL) {
+      baseUrl = process.env.HEROKU_APP_URL;
+    }
+    
+    if (!baseUrl && process.env.HEROKU_APP_NAME) {
+      baseUrl = `https://${process.env.HEROKU_APP_NAME}.herokuapp.com`;
+    }
+    
+    if (!baseUrl) {
+      const port = process.env.PORT || 3000;
+      baseUrl = `http://localhost:${port}`;
+    }
+    
+    // Ensure no trailing slash
+    baseUrl = baseUrl.replace(/\/$/, '');
+    
     return `${baseUrl}/oauth/callback`;
   }
 
   /**
    * Initiate OAuth 2.1 Authorization Code flow with PKCE
    * Returns authorization URL for user to visit
+   * 
+   * @param {string} serverName - Name/identifier for the server
+   * @param {string} serverUrl - The MCP server URL
+   * @param {Object} options - OAuth options
+   * @param {string} options.clientId - OAuth client ID
+   * @param {string} options.clientSecret - OAuth client secret (optional)
+   * @param {string[]} options.scopes - OAuth scopes to request
+   * @param {string} options.metadataUrl - Custom OAuth metadata URL (for remote servers)
+   * @param {string} options.callbackUrl - Custom callback URL
+   * @param {Object} options.clientMetadata - Metadata for dynamic client registration
    */
   async initiateAuthorizationFlow(serverName, serverUrl, options = {}) {
-    const metadata = await this.discoverServerMetadata(serverUrl);
+    // Use custom metadata URL if provided (useful for remote MCP servers)
+    const metadata = await this.discoverServerMetadata(serverUrl, options.metadataUrl);
     
     // Try dynamic client registration if no client ID provided
     let clientId = options.clientId;
@@ -197,6 +319,9 @@ export class OAuthManager {
     const codeChallenge = this.generateCodeChallenge(codeVerifier);
     const state = this.generateState();
 
+    // Get callback URL (custom or default)
+    const redirectUri = this.getCallbackUrl(options.callbackUrl);
+
     // Store pending authorization
     this.pendingAuthorizations.set(state, {
       serverName,
@@ -205,6 +330,7 @@ export class OAuthManager {
       clientId,
       clientSecret: options.clientSecret,
       scopes: options.scopes || [],
+      redirectUri,
       createdAt: Date.now(),
       expiresAt: Date.now() + (10 * 60 * 1000), // 10 minutes
     });
@@ -213,7 +339,7 @@ export class OAuthManager {
     const authUrl = new URL(metadata.authorization_endpoint);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('client_id', clientId);
-    authUrl.searchParams.set('redirect_uri', this.getCallbackUrl());
+    authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('state', state);
     authUrl.searchParams.set('code_challenge', codeChallenge);
     authUrl.searchParams.set('code_challenge_method', 'S256');
@@ -224,6 +350,7 @@ export class OAuthManager {
 
     logger.info(`Initiated OAuth flow for ${serverName}`, { 
       authorizationUrl: authUrl.toString(),
+      redirectUri,
       state 
     });
 
@@ -252,11 +379,11 @@ export class OAuthManager {
     try {
       const metadata = await this.discoverServerMetadata(pending.serverUrl);
       
-      // Exchange code for tokens
+      // Exchange code for tokens - use the same redirect_uri that was used in auth request
       const tokenRequest = {
         grant_type: 'authorization_code',
         code,
-        redirect_uri: this.getCallbackUrl(),
+        redirect_uri: pending.redirectUri || this.getCallbackUrl(),
         client_id: pending.clientId,
         code_verifier: pending.codeVerifier,
       };
