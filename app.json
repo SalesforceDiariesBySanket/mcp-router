@@ -1,0 +1,56 @@
+{
+  "name": "heroku-mcp-host",
+  "description": "MCP Host that bridges Salesforce (Apex/Flow) with remote MCP servers via REST API",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "salesforce",
+    "apex",
+    "flow",
+    "proxy",
+    "ai"
+  ],
+  "website": "https://github.com/your-org/heroku-mcp-host",
+  "repository": "https://github.com/your-org/heroku-mcp-host",
+  "logo": "",
+  "success_url": "/health",
+  "env": {
+    "API_KEY": {
+      "description": "API key for authenticating requests from Salesforce",
+      "required": true,
+      "generator": "secret"
+    },
+    "MCP_SERVERS": {
+      "description": "JSON configuration for MCP servers. Format: {\"name\": {\"url\": \"https://server/sse\", \"transport\": \"sse\"}}",
+      "required": false,
+      "value": "{}"
+    },
+    "MCP_TIMEOUT": {
+      "description": "Default timeout for MCP operations in milliseconds",
+      "required": false,
+      "value": "30000"
+    },
+    "LOG_LEVEL": {
+      "description": "Logging level (error, warn, info, debug)",
+      "required": false,
+      "value": "info"
+    },
+    "CORS_ORIGINS": {
+      "description": "Comma-separated list of allowed CORS origins, or * for all",
+      "required": false,
+      "value": "*"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ],
+  "stack": "heroku-24"
+}
