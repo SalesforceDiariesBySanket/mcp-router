@@ -1,7 +1,7 @@
 {
   "name": "heroku-mcp-host",
-  "version": "1.0.0",
-  "description": "MCP Host that bridges Salesforce (Apex/Flow) with remote MCP servers via REST API",
+  "version": "2.0.0",
+  "description": "MCP Host that bridges Salesforce (Apex/Flow) with remote MCP servers via REST API with OAuth 2.1 support",
   "main": "src/index.js",
   "type": "module",
   "scripts": {

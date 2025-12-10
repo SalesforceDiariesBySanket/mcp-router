@@ -4,6 +4,23 @@ import { logger } from '../utils/logger.js';
 export const mcpRouter = Router();
 
 /**
+ * Handle OAuth authorization required errors
+ */
+function handleOAuthError(error, res) {
+  if (error.name === 'OAuthAuthorizationRequired') {
+    return res.status(401).json({
+      success: false,
+      error: 'OAuth Authorization Required',
+      message: error.message,
+      authorizationUrl: error.authorizationUrl,
+      state: error.state,
+      expiresIn: error.expiresIn,
+    });
+  }
+  return null;
+}
+
+/**
  * Get connection manager and establish connection to server
  */
 async function getServerConnection(req, serverName) {
@@ -33,6 +50,8 @@ mcpRouter.get('/:serverName/tools', async (req, res, next) => {
       tools,
     });
   } catch (error) {
+    const oauthResponse = handleOAuthError(error, res);
+    if (oauthResponse) return;
     next(error);
   }
 });
@@ -74,6 +93,8 @@ mcpRouter.post('/:serverName/tools/call', async (req, res, next) => {
       result,
     });
   } catch (error) {
+    const oauthResponse = handleOAuthError(error, res);
+    if (oauthResponse) return;
     next(error);
   }
 });
@@ -94,6 +115,8 @@ mcpRouter.get('/:serverName/resources', async (req, res, next) => {
       resources,
     });
   } catch (error) {
+    const oauthResponse = handleOAuthError(error, res);
+    if (oauthResponse) return;
     next(error);
   }
 });
@@ -133,6 +156,8 @@ mcpRouter.post('/:serverName/resources/read', async (req, res, next) => {
       result,
     });
   } catch (error) {
+    const oauthResponse = handleOAuthError(error, res);
+    if (oauthResponse) return;
     next(error);
   }
 });
@@ -153,6 +178,8 @@ mcpRouter.get('/:serverName/resources/templates', async (req, res, next) => {
       templates,
     });
   } catch (error) {
+    const oauthResponse = handleOAuthError(error, res);
+    if (oauthResponse) return;
     next(error);
   }
 });
@@ -173,6 +200,8 @@ mcpRouter.get('/:serverName/prompts', async (req, res, next) => {
       prompts,
     });
   } catch (error) {
+    const oauthResponse = handleOAuthError(error, res);
+    if (oauthResponse) return;
     next(error);
   }
 });
@@ -212,6 +241,8 @@ mcpRouter.post('/:serverName/prompts/get', async (req, res, next) => {
       result,
     });
   } catch (error) {
+    const oauthResponse = handleOAuthError(error, res);
+    if (oauthResponse) return;
     next(error);
   }
 });
@@ -231,6 +262,8 @@ mcpRouter.get('/:serverName/capabilities', async (req, res, next) => {
       serverInfo: client.getServerInfo(),
     });
   } catch (error) {
+    const oauthResponse = handleOAuthError(error, res);
+    if (oauthResponse) return;
     next(error);
   }
 });

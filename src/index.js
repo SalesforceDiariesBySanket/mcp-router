@@ -7,8 +7,10 @@ import { authMiddleware } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { mcpRouter } from './routes/mcp.js';
 import { healthRouter } from './routes/health.js';
-import { serversRouter } from './routes/servers.js';
-import { MCPConnectionManager } from './services/MCPConnectionManager.js';
+import { serversRouter } from './routes/serversEnhanced.js';
+import { oauthRouter } from './routes/oauth.js';
+import { MCPConnectionManagerEnhanced } from './services/MCPConnectionManagerEnhanced.js';
+import { AuthType, TransportType } from './services/MCPClientEnhanced.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -40,32 +42,57 @@ app.use((req, res, next) => {
   next();
 });
 
-// Initialize MCP Connection Manager
-const connectionManager = new MCPConnectionManager();
+// Initialize Enhanced MCP Connection Manager
+const connectionManager = new MCPConnectionManagerEnhanced();
 app.set('mcpConnectionManager', connectionManager);
 
 // Health check endpoint (no auth required)
 app.use('/health', healthRouter);
 
+// OAuth callback endpoint (no auth required - called by OAuth servers)
+app.use('/oauth', oauthRouter);
+
 // API routes (auth required)
 app.use('/api/v1/servers', authMiddleware, serversRouter);
 app.use('/api/v1/mcp', authMiddleware, mcpRouter);
+app.use('/api/v1/oauth', authMiddleware, oauthRouter);
 
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
     name: 'Heroku MCP Host',
-    version: '1.0.0',
-    description: 'MCP Host for Salesforce Apex/Flow integration',
+    version: '2.0.0',
+    description: 'MCP Host for Salesforce Apex/Flow integration with OAuth 2.1 support',
+    features: [
+      'Multiple transport support (SSE, Streamable HTTP)',
+      'OAuth 2.1 with PKCE for browser-based authentication',
+      'OAuth 2.1 Client Credentials for server-to-server auth',
+      'API Key and Bearer Token authentication',
+      'Dynamic client registration (RFC7591)',
+      'Automatic token refresh',
+    ],
+    authentication: {
+      supportedTypes: Object.values(AuthType),
+      description: 'Servers can be configured with different authentication methods',
+    },
+    transports: {
+      supportedTypes: Object.values(TransportType),
+      description: 'Multiple MCP transport protocols supported',
+    },
     endpoints: {
       health: '/health',
       servers: '/api/v1/servers',
+      serverOptions: '/api/v1/servers/config/options',
       tools: '/api/v1/mcp/:serverName/tools',
       callTool: '/api/v1/mcp/:serverName/tools/call',
       resources: '/api/v1/mcp/:serverName/resources',
       readResource: '/api/v1/mcp/:serverName/resources/read',
       prompts: '/api/v1/mcp/:serverName/prompts',
       getPrompt: '/api/v1/mcp/:serverName/prompts/get',
+      oauthCallback: '/oauth/callback',
+      oauthInitiate: '/api/v1/oauth/initiate/:serverName',
+      oauthStatus: '/api/v1/oauth/token-status/:serverName',
+      oauthRevoke: '/api/v1/oauth/revoke/:serverName',
     },
     documentation: 'See README.md for full API documentation',
   });
@@ -89,14 +116,31 @@ async function startServer() {
     await connectionManager.initializeFromConfig();
     
     app.listen(PORT, HOST, () => {
-      logger.info(`🚀 Heroku MCP Host running on http://${HOST}:${PORT}`);
+      logger.info(`🚀 Heroku MCP Host v2.0.0 running on http://${HOST}:${PORT}`);
       logger.info(`📡 Ready to bridge Salesforce with MCP servers`);
+      logger.info(`🔐 OAuth 2.1 support enabled`);
+      logger.info(`🔌 Supported transports: ${Object.values(TransportType).join(', ')}`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);
     process.exit(1);
   }
 }
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  logger.info('SIGTERM received, shutting down gracefully');
+  await connectionManager.disconnectAll();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  logger.info('SIGINT received, shutting down gracefully');
+  await connectionManager.disconnectAll();
+  process.exit(0);
+});
+
+startServer();
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
