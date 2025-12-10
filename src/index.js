@@ -140,19 +140,5 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-startServer();
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down gracefully...');
-  await connectionManager.disconnectAll();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received, shutting down gracefully...');
-  await connectionManager.disconnectAll();
-  process.exit(0);
-});
-
+// Start the server
 startServer();
