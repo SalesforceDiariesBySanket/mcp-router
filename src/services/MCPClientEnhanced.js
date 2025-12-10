@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { logger } from '../utils/logger.js';
 import { oauthManager } from './OAuthManager.js';
 
@@ -331,13 +332,11 @@ export class MCPClientEnhanced {
    * Implements the MCP 2025-03-26 specification
    */
   async createStreamableHttpTransport(url, headers) {
-    // The SDK's SSEClientTransport should handle streamable HTTP
-    // For now, we use the SSE transport with proper headers
-    return new SSEClientTransport(url, {
+    // Use the proper StreamableHTTPClientTransport from the MCP SDK
+    return new StreamableHTTPClientTransport(url, {
       requestInit: {
         headers: {
           ...headers,
-          'Accept': 'application/json, text/event-stream',
         },
       },
     });
