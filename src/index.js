@@ -49,6 +49,21 @@ app.set('mcpConnectionManager', connectionManager);
 // Health check endpoint (no auth required)
 app.use('/health', healthRouter);
 
+// Atlassian domain verification (no auth required)
+app.get('/atlassian-domain-verification-426744cf-46e4-4828-806a-31fc710c3239.html', (req, res) => {
+  res.type('html').send(`<!DOCTYPE html>
+<html>
+<head>
+<meta name="robots" content="noindex">
+</head>
+<body>
+<h1>Domain Verification Token</h1>
+<code id="domain-verification-token" data-value="4iNlF5teeF81NOMCb/EbzHHPqwUCv7uVhjCUM0vV67dDeBTcdNvx801S4mcqiejR">4iNlF5teeF81NOMCb/EbzHHPqwUCv7uVhjCUM0vV67dDeBTcdNvx801S4mcqiejR</code>
+<!-- 4iNlF5teeF81NOMCb/EbzHHPqwUCv7uVhjCUM0vV67dDeBTcdNvx801S4mcqiejR -->
+</body>
+</html>`);
+});
+
 // OAuth callback endpoint (no auth required - called by OAuth servers)
 app.use('/oauth', oauthRouter);
 
