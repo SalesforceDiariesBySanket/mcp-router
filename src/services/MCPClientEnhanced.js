@@ -1,13 +1,14 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../utils/logger.js';
 import { oauthManager } from './OAuthManager.js';
 
 /**
- * MCP Protocol Version
+ * MCP Protocol Version - use the SDK's latest version for consistency
  */
-export const MCP_PROTOCOL_VERSION = '2025-03-26';
+export const MCP_PROTOCOL_VERSION = LATEST_PROTOCOL_VERSION;
 
 /**
  * Transport types supported by the MCP Host
@@ -73,7 +74,7 @@ export class MCPClientEnhanced {
   async buildAuthHeaders() {
     const headers = { 
       ...this.config.headers,
-      'MCP-Protocol-Version': MCP_PROTOCOL_VERSION,
+      // Note: MCP-Protocol-Version is handled by the SDK's transport
     };
 
     switch (this.config.authType) {
